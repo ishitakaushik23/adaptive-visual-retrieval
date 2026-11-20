@@ -1,34 +1,82 @@
-# Adaptive Visual Retrieval using Vision-Language Models
+# Region-Level Feedback-Adaptive Multimodal Retrieval
 
-## Problem Statement
+**Author:** Ishita Kaushik, IIT Jammu (B.Tech Mathematics & Computing)
 
-Modern visual retrieval systems can effectively retrieve semantically similar images using deep learning models. However, they often struggle to understand higher-level visual preferences such as aesthetics, style, and individual user taste. As a result, retrieved images may be technically similar but not necessarily the ones a user actually prefers.
+## 1. Problem Statement
 
-This project aims to investigate adaptive visual retrieval systems that go beyond semantic similarity by incorporating representation learning and, in later stages, user feedback to improve retrieval quality and personalization.
+Vision-language retrieval systems such as CLIP represent each image with one global embedding. On cluttered, multi-object images this vector blends every object together, so a query about one object matches poorly. Relevance feedback has a related weakness: when a user marks a whole image as relevant or irrelevant, the system cannot tell which object in the image the user meant.
 
-## Motivation
+## 2. Prior Work
 
-Visual retrieval is becoming increasingly important in applications such as visual search, e-commerce, recommendation systems, fashion discovery, interior design, and social media platforms. While current systems excel at identifying semantic similarity, users often expect results that also align with style, aesthetics, and personal preferences.
+Levi et al., *Object-Centric Open-Vocabulary Image-Retrieval with Aggregated Features* (BMVC 2023), observe that one global embedding per image limits retrieval of small object instances. They propose **Dense-CLIP**, which uses CLIP's local features, and **Cluster-CLIP**, which clusters those local features and keeps the cluster centroids so the index stays small. Their setting is static, one-shot text-to-image retrieval.
 
-Building a retrieval system that continuously improves based on user interaction could make image discovery more intuitive and personalized. This project is motivated by the goal of exploring how modern computer vision techniques can bridge the gap between semantic understanding and human visual preference.
+## 3. Version 1 (baseline)
 
-## Research Question
+Whole-image retrieval with OpenCLIP ViT-B/32 (zero-shot): one embedding per image, cosine-similarity top-k, no feedback, no metric.
 
-Can adaptive visual retrieval systems provide more relevant and personalized image recommendations than conventional semantic retrieval systems by leveraging modern vision-language representations and user feedback?
+## 4. What This Work Adds
 
-## Long-Term Vision
+| | Prior work | This work |
+|---|---|---|
+| Object-level granularity | CLIP local features + clustering | YOLOv8 detected regions, each embedded with CLIP |
+| Interaction | None (static retrieval) | Multi-round relevance feedback (Rocchio-style query update) |
+| Queries | Text | Text and image (shared CLIP space) |
+| Question asked | Does object-level help retrieval? | Does object-level help feedback *converge faster*, especially on cluttered images? |
 
-Version 1:
-Develop a semantic image retrieval system capable of finding visually similar images using modern vision-language representations.
+**Research question.** Does decomposing images into object regions let relevance feedback converge faster than whole-image feedback on cluttered, multi-object images?
 
-Version 2:
-Investigate different embedding models and compare their retrieval performance.
+**Hypothesis.** Region-level feedback converges faster on cluttered images. On simple single-subject images the two should be similar, since there is little to disentangle.
 
-Version 3:
-Introduce user feedback to adapt retrieval results based on individual preferences.
+## 5. Method
 
-Version 4:
-Explore aesthetic-aware retrieval to better capture style, mood, and visual appeal.
+1. Detect object regions per image with YOLOv8 (fallback: whole image if nothing is detected).
+2. Embed whole images and each region with CLIP.
+3. Score an image by its best-matching region (max over regions).
+4. After each round, update the query with Rocchio: move toward relevant items, away from irrelevant ones.
+5. Four-condition ablation: whole-image / region-level, each with and without feedback.
 
-Version 5:
-Evaluate the complete system through experiments, document the findings, and prepare the work for publication as a technical report or research paper.
+## 6. Evaluation Setup
+
+- Data: COCO128 (128 images), split by YOLO-detected object count into simple (fewest objects) and cluttered (most objects) subsets.
+- Queries: 15 text queries per subset, one labeled relevant image each (`data/queries_simple.json`, `data/queries_cluttered.json`).
+- Feedback is simulated from the ground-truth labels. 5 rounds, top-5 results.
+- Metric: MRR. Recall@k was tried first and could not show the effect, because with one relevant image per query it only takes the values 0 or 1/k regardless of rank position.
+
+## 7. Results
+
+*Replace the table below with `results_table.csv` (produced by the notebook).*
+
+| Set | Condition | MRR round 0 | MRR round 1 | MRR final | 95% CI (final) |
+|---|---|---|---|---|---|
+| simple | whole_baseline | | | | |
+| simple | whole_feedback | | | | |
+| simple | region_baseline | | | | |
+| simple | region_feedback | | | | |
+| cluttered | whole_baseline | | | | |
+| cluttered | whole_feedback | | | | |
+| cluttered | region_baseline | | | | |
+| cluttered | region_feedback | | | | |
+
+Per-query comparison, region_feedback vs whole_feedback at the final round (wins / ties / losses): simple = _ / _ / _, cluttered = _ / _ / _.
+
+*Preliminary run (earlier query set, to be superseded by the table above):* on cluttered images region-level feedback reached MRR 0.2 by round 1, while whole-image feedback climbed gradually to 0.083 by round 4. On simple images both ended near 0.133.
+
+**Reading the baselines.** `whole_baseline` to `region_baseline` isolates what object-level decomposition adds on its own (the idea in the prior work). `region_baseline` to `region_feedback` isolates what feedback adds on top (this work's extension).
+
+## 8. Why It Is Useful
+
+Interactive search over cluttered image collections (product catalogs, photo libraries, visual discovery feeds) where users refine results by marking a few as good or bad. Region-level feedback gives that signal a precise object to attach to.
+
+## 9. Limitations
+
+- Feedback is simulated, not collected from real users.
+- One relevant image per query makes scores coarse; n = 15 per subset gives wide confidence intervals.
+- COCO128 is small, and YOLOv8 only detects COCO's 80 classes.
+- The prior method was not reimplemented. `region_baseline` stands in for the object-centric idea.
+
+## 10. Future Work
+
+- Larger labeled query sets (about 50 per subset) and the full COCO validation set.
+- Mean vs. max aggregation across regions.
+- Compare against CLIP local-feature / clustering-based object embeddings.
+- Other vision-language backbones.
